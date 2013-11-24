@@ -3,9 +3,6 @@
 Created on Thu Nov 07 17:52:15 2013
 
 @author: Talmo
-
-This file provides functions that can be used to score a sequence of
-nucleotide bases using a GPU-based PSSM approach.
 """
 
 import math
@@ -252,7 +249,51 @@ def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-10
     
     return pssm
 
-# For testing:
+
+def score_long_sequence(sequence, pssm, chunk_size=7e7, keep_strands=True):
+    """
+    This function is a wrapper for score_sequence that splits a very long
+    sequence into chunks that can be copied to the GPU safely without running
+    out of memory.
+    
+    Args:
+        sequence: A sequence of bases to be scored.
+        pssm: PSSM to be used for scoring.
+        chunk_size: The length of each chunk. Change this to the highest value
+            your GPU can stably handle. Recommended value for a GPU with
+            1024 MB of memory is 6e7.
+        keep_strands: Whether memory should be allocated for storing which
+            strand the scores come from. Set this to False if you just want the
+            scores and the strands array will not be returned.
+            
+    Returns:
+        scores: An array of scores of the length of the sequence minus the
+            window size (width of the PSSM).
+        strands: An array indicating which strand the score corresponds to.
+        
+    See score_sequence for (a lot) more information on these parameters and
+    return values.
+    """
+    
+    # Pre-allocate memory for scores and strands    
+    scores = np.empty(sequence.size, np.float32)
+    if keep_strands:
+        strands = np.empty(sequence.size, np.int32)    
+    
+    for chunk_start in range(0, sequence.size, int(chunk_size)):
+        # Score chunk
+        chunk_scores, chunk_strands = score_sequence(sequence[chunk_start:chunk_start + chunk_size], pssm)
+        
+        # Save output to array segment
+        scores[chunk_start:chunk_start + chunk_scores.size] = chunk_scores
+        if keep_strands:
+            strands[chunk_start:chunk_start + chunk_strands.size] = chunk_strands
+    
+    if keep_strands:
+        return scores, strands
+    else:
+        return scores
+    
 #w = 16
 #N = 82e6
 ##tpb = int(cuda.get_current_device().MAX_THREADS_PER_BLOCK/2)
