@@ -1,0 +1,5 @@
+# Ignore all subdirectories
+/*/
+
+# Ignore compiled python files
+*.py[cod]

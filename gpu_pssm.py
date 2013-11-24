@@ -3,6 +3,9 @@
 Created on Thu Nov 07 17:52:15 2013
 
 @author: Talmo
+
+This file provides functions that can be used to score a sequence of
+nucleotide bases using a GPU-based PSSM approach.
 """
 
 import math
