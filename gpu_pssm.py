@@ -11,63 +11,7 @@ nucleotide bases using a GPU-based PSSM approach.
 import math
 import numpy as np
 from numbapro import cuda
-from time import time
-
-
-# CUDA device kernel
-@cuda.jit('void(float32[:], float32[:], int32[:], float32[:], int32[:])')
-def cuda_score(pssm, pssm_r, seq, scores, strands):
-    """
-    This is a CUDA kernel that will score a sequence using a PSSM sliding
-    window approach. It parallelizes across all threads to score the entire
-    sequence.
-    
-    Make sure that all the arguments are pointers to device arrays (not host).
-    
-    Args:
-        pssm: This is a float32 array of w * 4 length where w is the width of
-            the window. Every four elements correspond to the PSSM score of A,
-            C, G, T (in that order).
-        pssm_r: This is a float32 array that is the reverse complement of the
-            the forward PSSM.
-        seq: This is a nucleotide sequence represented in integer form where,
-            A = 0, C = 1, G = 2, and T = 3.
-        scores: This is the output vector for the score of the window starting
-            at ech position.
-        strands: This is the output vector for a binary vector that represents 
-            which strand each score corresponds to, where 0 = forward and
-            1 = reverse strand.
-    """
-    # Get the unique thread index. Numerically equivalent to:
-    # cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
-    i = cuda.grid(1)
-    
-    # We may have allocated slightly more threads than necessary, in which case
-    # don't continue. scores.shape[0] == len(scores) == len(seq) - w + 1
-    # We use .shape since the Python Dialect for CUDA in NumbaPro doesn't
-    # support __len__. See: http://docs.continuum.io/numbapro/CUDAPySpec.html
-    while i < scores.shape[0]:
-        # Initialize scores
-        score = 0.0
-        score_r = 0.0 # reverse strand
-        
-        # Loop through each position of our window of length w where:
-        # w = width of PSSM = the length of the n-mer we're scoring
-        for pos in range(pssm.shape[0] / 4):
-            pssm_idx = pos * 4 + seq[i + pos] # index of the cell in the PSSM
-            score += pssm[pssm_idx]
-            score_r += pssm_r[pssm_idx]
-        
-        # We keep whichever strand scored the highest and save it
-        if score >= score_r:
-            scores[i] = score
-            strands[i] = 0
-        else:
-            scores[i] = score_r
-            strands[i] = 1
-        
-        # Iterate to the next chunk
-        i += cuda.gridDim.x * cuda.blockDim.x
+from time import time, clock
 
 
 def score_sequence(seq, pssm, verbose = False, benchmark = False, blocks_per_grid = -1, threads_per_block = -1):
@@ -144,7 +88,7 @@ def score_sequence(seq, pssm, verbose = False, benchmark = False, blocks_per_gri
     pssm_r = np.array([pssm[i / 4 + (3 - (i % 4))] for i in range(w*4)][::-1])
     
     # Collect benchmarking info
-    s = time()
+    s = clock()
     start_mem = cuda.get_current_device().get_memory_info()[0]
     
     # Start a stream
@@ -169,7 +113,7 @@ def score_sequence(seq, pssm, verbose = False, benchmark = False, blocks_per_gri
     
     # Collect benchmarking info
     end_mem = cuda.get_current_device().get_memory_info()[0]
-    t = time() - s
+    t = clock() - s
     
     # Output info on the run if verbose parameter is true
     if verbose:
@@ -186,6 +130,95 @@ def score_sequence(seq, pssm, verbose = False, benchmark = False, blocks_per_gri
         return (scores, strands, run_info)
         
     return (scores, strands)
+
+
+def score_long_sequence(sequence, pssm, chunk_size=7e7, keep_strands=True):
+    """
+    This function is a wrapper for score_sequence that splits a very long
+    sequence into chunks that can be copied to the GPU safely without running
+    out of memory.
+    
+    Args:
+        sequence: A sequence of bases to be scored.
+        pssm: PSSM to be used for scoring.
+        chunk_size: The length of each chunk. Change this to the highest value
+            your GPU can stably handle. Recommended value for a GPU with
+            1024 MB of memory is 6e7.
+        keep_strands: Whether memory should be allocated for storing which
+            strand the scores come from. Set this to False if you just want the
+            scores and the strands array will not be returned.
+            
+    Returns:
+        scores: An array of scores of the length of the sequence minus the
+            window size (width of the PSSM).
+        strands: An array indicating which strand the score corresponds to.
+        
+    See score_sequence for (a lot) more information on these parameters and
+    return values.
+    """
+    
+    # Pre-allocate memory for scores and strands    
+    scores = np.empty(sequence.size - pssm.size / 4 + 1, np.float32)
+    if keep_strands:
+        strands = np.empty(sequence.size - pssm.size / 4 + 1, np.int32)    
+    
+    for chunk_start in range(0, sequence.size, int(chunk_size)):
+        # Score chunk
+        chunk_scores, chunk_strands = score_sequence(sequence[chunk_start:chunk_start + chunk_size], pssm)
+        
+        # Save output to array segmentif keep_strands:
+        return scores, strands
+    else:
+        return scores
+        scores[chunk_start:chunk_start + chunk_scores.size] = chunk_scores
+        if keep_strands:
+            strands[chunk_start:chunk_start + chunk_strands.size] = chunk_strands
+    
+    if keep_strands:
+        return scores, strands
+    else:
+        return scores
+
+
+def score_sequence_with_cpu(sequence, pssm, benchmark=True):
+    """
+    This is a wrapper for the cpu_score() function and is analogous to
+    score_sequence(). It uses a CPU-based implementation of the sliding window
+    scorer. The main purpose is to use it for comparison with the CUDA-based
+    implementation.
+    
+    Args:
+        sequence: A sequence of bases to be scored.
+        pssm: PSSM to be used for scoring.
+        benchmark: Determines whether the runtime for the scoring function will
+            be returned.
+            
+    Returns:
+        scores: An array of scores of the length of the sequence minus the
+            window size (width of the PSSM).
+        strands: An array indicating which strand the score corresponds to.
+        runtime: The time it took to score the sequence. It is essentially the
+            same as timing the function call, except it does not include the
+            time needed to allocate memory. Will only be returned if the
+            benchmark argument is set to True.
+    """
+        
+    # Calculate the reverse-complement of the PSSM
+    pssm_r = np.array([pssm[i / 4 + (3 - (i % 4))] for i in range(pssm.size)][::-1])
+    
+    # Pre-allocate memory for scores and strands
+    scores = np.empty(sequence.size - pssm.size / 4 + 1, np.float32)
+    strands = np.empty(sequence.size - pssm.size / 4 + 1, np.int32)    
+    
+    # Score and save output to the pre-allocated arrays
+    s = clock()
+    cpu_score(pssm, pssm_r, sequence, scores, strands)
+    runtime = clock() - s
+    
+    if benchmark:
+        return scores, strands, runtime
+    else:
+        return scores, strands
 
 
 def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-10):
@@ -251,52 +284,103 @@ def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-10
             pssm[pos * 4 + b] = math.log(f / p + epsilon, 2)
     
     return pssm
-
-
-def score_long_sequence(sequence, pssm, chunk_size=7e7, keep_strands=True):
+    
+    
+# CUDA device kernel
+@cuda.jit('void(float32[:], float32[:], int32[:], float32[:], int32[:])')
+def cuda_score(pssm, pssm_r, seq, scores, strands):
     """
-    This function is a wrapper for score_sequence that splits a very long
-    sequence into chunks that can be copied to the GPU safely without running
-    out of memory.
+    This is a CUDA kernel that will score a sequence using a PSSM sliding
+    window approach. It parallelizes across all threads to score the entire
+    sequence.
+    
+    Make sure that all the arguments are pointers to device arrays (not host).
     
     Args:
-        sequence: A sequence of bases to be scored.
-        pssm: PSSM to be used for scoring.
-        chunk_size: The length of each chunk. Change this to the highest value
-            your GPU can stably handle. Recommended value for a GPU with
-            1024 MB of memory is 6e7.
-        keep_strands: Whether memory should be allocated for storing which
-            strand the scores come from. Set this to False if you just want the
-            scores and the strands array will not be returned.
-            
-    Returns:
-        scores: An array of scores of the length of the sequence minus the
-            window size (width of the PSSM).
-        strands: An array indicating which strand the score corresponds to.
-        
-    See score_sequence for (a lot) more information on these parameters and
-    return values.
+        pssm: This is a float32 array of w * 4 length where w is the width of
+            the window. Every four elements correspond to the PSSM score of A,
+            C, G, T (in that order).
+        pssm_r: This is a float32 array that is the reverse complement of the
+            the forward PSSM.
+        seq: This is a nucleotide sequence represented in integer form where,
+            A = 0, C = 1, G = 2, and T = 3.
+        scores: This is the output vector for the score of the window starting
+            at ech position.
+        strands: This is the output vector for a binary vector that represents 
+            which strand each score corresponds to, where 0 = forward and
+            1 = reverse strand.
     """
+    # Get the unique thread index. Numerically equivalent to:
+    # cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
+    i = cuda.grid(1)
     
-    # Pre-allocate memory for scores and strands    
-    scores = np.empty(sequence.size, np.float32)
-    if keep_strands:
-        strands = np.empty(sequence.size, np.int32)    
-    
-    for chunk_start in range(0, sequence.size, int(chunk_size)):
-        # Score chunk
-        chunk_scores, chunk_strands = score_sequence(sequence[chunk_start:chunk_start + chunk_size], pssm)
+    # We may have allocated slightly more threads than necessary, in which case
+    # don't continue. scores.shape[0] == len(scores) == len(seq) - w + 1
+    # We use .shape since the Python Dialect for CUDA in NumbaPro doesn't
+    # support __len__. See: http://docs.continuum.io/numbapro/CUDAPySpec.html
+    while i < scores.shape[0]:
+        # Initialize scores
+        score = 0.0
+        score_r = 0.0 # reverse strand
         
-        # Save output to array segment
-        scores[chunk_start:chunk_start + chunk_scores.size] = chunk_scores
-        if keep_strands:
-            strands[chunk_start:chunk_start + chunk_strands.size] = chunk_strands
+        # Loop through each position of our window of length w where:
+        # w = width of PSSM = the length of the n-mer we're scoring
+        for pos in range(pssm.shape[0] / 4):
+            pssm_idx = pos * 4 + seq[i + pos] # index of the cell in the PSSM
+            score += pssm[pssm_idx]
+            score_r += pssm_r[pssm_idx]
+        
+        # We keep whichever strand scored the highest and save it
+        if score >= score_r:
+            scores[i] = score
+            strands[i] = 0
+        else:
+            scores[i] = score_r
+            strands[i] = 1
+        
+        # Iterate to the next chunk
+        i += cuda.gridDim.x * cuda.blockDim.x
+
+
+def cpu_score(pssm, pssm_r, seq, scores, strands):
+    """
+    This is a CPU-based approach to scoring using a PSSM. This is mainly
+    intended for comparison with the GPU approach.
     
-    if keep_strands:
-        return scores, strands
-    else:
-        return scores
+    Args:
+        pssm: This is a float32 array of w * 4 length where w is the width of
+            the window. Every four elements correspond to the PSSM score of A,
+            C, G, T (in that order).
+        pssm_r: This is a float32 array that is the reverse complement of the
+            the forward PSSM.
+        seq: This is a nucleotide sequence represented in integer form where,
+            A = 0, C = 1, G = 2, and T = 3.
+        scores: This is the output vector for the score of the window starting
+            at ech position.
+        strands: This is the output vector for a binary vector that represents 
+            which strand each score corresponds to, where 0 = forward and
+            1 = reverse strand.
+    """
+    # Window size
+    w = pssm.size / 4
     
+    for pos in range(scores.size):
+        window = seq[pos:pos + w]
+        
+        scores = [pssm[i * 4 + base] for i, base in enumerate(window)]
+        score = sum(scores)
+        scores_r = [pssm_r[i * 4 + base] for i, base in enumerate(window)]
+        score_r = sum(scores_r)
+        
+        # We keep whichever strand scored the highest and save it
+        if score >= score_r:
+            scores[i] = score
+            strands[i] = 0
+        else:
+            scores[i] = score_r
+            strands[i] = 1    
+    
+
 #w = 16
 #N = 82e6
 ##tpb = int(cuda.get_current_device().MAX_THREADS_PER_BLOCK/2)
