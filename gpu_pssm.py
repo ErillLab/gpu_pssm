@@ -166,10 +166,7 @@ def score_long_sequence(sequence, pssm, chunk_size=7e7, keep_strands=True):
         # Score chunk
         chunk_scores, chunk_strands = score_sequence(sequence[chunk_start:chunk_start + chunk_size], pssm)
         
-        # Save output to array segmentif keep_strands:
-        return scores, strands
-    else:
-        return scores
+        # Save output to array segment if keep_strands:
         scores[chunk_start:chunk_start + chunk_scores.size] = chunk_scores
         if keep_strands:
             strands[chunk_start:chunk_start + chunk_strands.size] = chunk_strands
@@ -221,7 +218,7 @@ def score_sequence_with_cpu(sequence, pssm, benchmark=True):
         return scores, strands
 
 
-def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-10):
+def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-50):
     """
     The Position-Specific Scoring Matrix (PSSM) reflects the information
     content represented by the occurrence of each base at each position of a
@@ -271,18 +268,25 @@ def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-10
     for pos in range(counts.size / 4):
         total_count = sum(counts[pos:pos + 4])
         for b in range(4):
-            # f = frequency of this base at this position
-            f = counts[pos * 4 + b] / total_count
-            
-            # p = frequency of this base in the genome        
+            # p = frequency of this base in the genome
             p = genome_frequencies[b]
+            
+            # pseudo_freq = frequency of this base at this position using a
+            # Laplacian pseudocount
+            pseudo_freq = (counts[pos * 4 + b] + p) / (total_count + 1)
+            
+            # f = frequency of this base at this position
+            #f = counts[pos * 4 + b] / total_count
+            #print f
             
             # Each entry in the PSSM is the log-likelihood of that base at that
             # position.
+            pssm[pos * 4 + b] = math.log(pseudo_freq / p, 2)
+            
             # We add a very small epsilon to avoid log(0) situations, which
-            # should yield -Inf, but is not supported by Python
-            pssm[pos * 4 + b] = math.log(f / p + epsilon, 2)
-    
+            # should yield -Inf, but is not supported by Python. This is known
+            # as a computational pseudocount
+            #pssm[pos * 4 + b] = math.log(f / p + epsilon, 2)
     return pssm
     
     
@@ -310,7 +314,7 @@ def cuda_score(pssm, pssm_r, seq, scores, strands):
             which strand each score corresponds to, where 0 = forward and
             1 = reverse strand.
     """
-    # Get the unique thread index. Numerically equivalent to:
+    # Get the unique 1D thread index. Numerically equivalent to:
     # cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
     i = cuda.grid(1)
     
