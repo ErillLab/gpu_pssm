@@ -218,7 +218,7 @@ def score_sequence_with_cpu(sequence, pssm, benchmark=True):
         return scores, strands
 
 
-def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-50):
+def create_pssm(motif_filename, genome_frequencies = [0.25] * 4):
     """
     The Position-Specific Scoring Matrix (PSSM) reflects the information
     content represented by the occurrence of each base at each position of a
@@ -235,10 +235,8 @@ def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-50
             protein. These sequences must be aligned and of the same length.
         genome_frequencies: The background frequencies of each base in the
             genome. This is the nucleotide composition of the genome in the
-            order: A, C, G, T
-        epsilon: A small number added to prevent log(0) situations where there
-            is an infinitely great negative log-likelihood of a base occuring
-            at a position.
+            order: A, C, G, T. If not specified, they are assumed to be
+            equiprobable.
         
     Returns:
         pssm: A float64 array of length w * 4, where w is the width of the
@@ -266,26 +264,28 @@ def create_pssm(motif_filename, genome_frequencies = [0.25] * 4, epsilon = 1e-50
     
     # Calculate PSSM
     for pos in range(counts.size / 4):
-        total_count = sum(counts[pos:pos + 4])
+        total_count = sum(counts[pos * 4:pos * 4 + 4])
         for b in range(4):
             # p = frequency of this base in the genome
             p = genome_frequencies[b]
             
-            # pseudo_freq = frequency of this base at this position using a
-            # Laplacian pseudocount
+            ##### Laplacian pseudocount
+            # pseudo_freq = frequency of this base at this position with the
+            # added probability of one more event
             pseudo_freq = (counts[pos * 4 + b] + p) / (total_count + 1)
-            
-            # f = frequency of this base at this position
-            #f = counts[pos * 4 + b] / total_count
-            #print f
             
             # Each entry in the PSSM is the log-likelihood of that base at that
             # position.
             pssm[pos * 4 + b] = math.log(pseudo_freq / p, 2)
             
+            
+            ##### Computational pseudocount
+            # f = frequency of this base at this position in the motif
+            #f = counts[pos * 4 + b] / total_count
+            
             # We add a very small epsilon to avoid log(0) situations, which
-            # should yield -Inf, but is not supported by Python. This is known
-            # as a computational pseudocount
+            # should yield -Inf, but is not supported by Python
+            #epsilon = 1e-50
             #pssm[pos * 4 + b] = math.log(f / p + epsilon, 2)
     return pssm
     
@@ -371,18 +371,16 @@ def cpu_score(pssm, pssm_r, seq, scores, strands):
     for pos in range(scores.size):
         window = seq[pos:pos + w]
         
-        scores = [pssm[i * 4 + base] for i, base in enumerate(window)]
-        score = sum(scores)
-        scores_r = [pssm_r[i * 4 + base] for i, base in enumerate(window)]
-        score_r = sum(scores_r)
+        score = sum([pssm[i * 4 + base] for i, base in enumerate(window)])
+        score_r = sum([pssm_r[i * 4 + base] for i, base in enumerate(window)])
         
         # We keep whichever strand scored the highest and save it
         if score >= score_r:
-            scores[i] = score
-            strands[i] = 0
+            scores[pos] = score
+            strands[pos] = 0
         else:
-            scores[i] = score_r
-            strands[i] = 1    
+            scores[pos] = score_r
+            strands[pos] = 1    
     
 
 #w = 16
