@@ -5,7 +5,7 @@ Created on Thu Nov 07 02:48:39 2013
 @author: Talmo
 
 This file can be used to test the performance of the CUDA PSSM sliding window
-implementation.
+implementation (gpu_pssm).
 
 """
 import numpy as np
@@ -27,14 +27,15 @@ def test1():
     pssm = np.random.rand(4 * w) # generate PSSM
     data = []
     for n in genome_sizes * trials:
-        print n
         # Generate random genome
         seq = np.random.randint(0, 3, int(n))
         
         # Score
-        __, __, run_info = score_sequence(seq, pssm, benchmark = True)
-        data.append((n, run_info["genome_size"] / run_info["runtime"]))
-    print "\n\nBenchmarked %g bp in %.2f seconds." % (int64(sum(genome_sizes)) * trials, time() - start)
+        __, run_info = score_sequence(seq, pssm, keep_strands = False, benchmark = True)
+        data_point = (n, run_info["genome_size"] / run_info["runtime"])
+        print "%d -> %g bp/s" % data_point
+        data.append(data_point)
+    print "\n\nBenchmarked %g bp in %.2f seconds." % (np.int64(sum(genome_sizes)) * trials, time() - start)
     
     x = [pt[0] for pt in data]
     y = [pt[1] for pt in data]
@@ -84,7 +85,7 @@ def test3():
     This function genertes a plot comparing CPU versus GPU performance.
     """
     start = time()
-    genome_sizes = range(int(100e3), int(1e6 + 1), int(100e3)) # 100k to 1mi bases at steps of 100k
+    genome_sizes = range(int(100e3), int(1e6 + 1), int(100e3))
     trials = 5 # trials per size
     w = 16 # window size
     pssm = np.random.rand(4 * w) # generate PSSM
@@ -95,14 +96,14 @@ def test3():
         seq = np.random.randint(0, 3, int(n))
         
         # Score
-        __, __, run_info = score_sequence(seq, pssm, benchmark = True)
-        __, __, cpu_runtime = score_sequence_with_cpu(seq, pssm, benchmark = True)
+        __, __, gpu_run_info = score_sequence(seq, pssm, benchmark = True)
+        __, __, cpu_run_info = score_sequence_with_cpu(seq, pssm, benchmark = True)
         
         # Save data
-        data_point = (n, n / run_info["runtime"], n / cpu_runtime)
+        data_point = (n, n / gpu_run_info["runtime"], n / cpu_run_info["runtime"])
         print data_point
         data.append(data_point)
-    print "\n\nBenchmarked %g bp in %.2f seconds." % (int64(sum(genome_sizes)) * trials, time() - start)
+    print "\n\nBenchmarked %g bp in %.2f seconds." % (np.int64(sum(genome_sizes)) * trials, time() - start)
     
     # Plot data
     x = [pt[0] for pt in data]
@@ -114,4 +115,4 @@ def test3():
     plt.yscale('log')
     xlabel('Genome Size'), ylabel('Bases per second')
     
-test3()
+test1()
