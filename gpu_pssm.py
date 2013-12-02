@@ -152,16 +152,10 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
         if blocks_per_grid > cuda.get_current_device().MAX_GRID_DIM_X:
             blocks_per_grid = cuda.get_current_device().MAX_GRID_DIM_X
     
-     
-    
     if verbose:
         print "Threads per block = %d" % threads_per_block
         print "Blocks per grid = %d" % blocks_per_grid
         print "Total threads = %d" % (threads_per_block * blocks_per_grid)
-    
-
-
-    i
     
     # Collect benchmarking info
     s = default_timer()
@@ -297,20 +291,23 @@ def score_sequence_with_cpu(sequence, pssm, keep_strands=True, benchmark=False):
             
             
     """
-        
+    w = int(pssm.size / 4) # width of PSSM
+    n = int(sequence.size) # length of the sequence being scored
+    
     # Calculate the reverse-complement of the PSSM
     pssm_r = np.array([pssm[i / 4 + (3 - (i % 4))] for i in range(pssm.size)][::-1])
     
     # Pre-allocate memory for scores and strands
-    scores = np.empty(sequence.size - pssm.size / 4 + 1, np.float64)
-    strands = np.empty(sequence.size - pssm.size / 4 + 1, np.int32)    
+    scores = np.empty(n - w + 1, np.float64)
+    strands = np.empty(n - w + 1, np.int32)
     
     # Score and save output to the pre-allocated arrays
     s = default_timer()
     cpu_score(pssm, pssm_r, sequence, scores, strands)
     t = default_timer() - s
     
-    run_info = {"genome_size": n, "runtime": t}    
+    # Save benchmarking info
+    run_info = {"genome_size": n, "runtime": t}
     
     if keep_strands:
         if benchmark:
@@ -328,7 +325,7 @@ def score_sequence_with_cpu(sequence, pssm, keep_strands=True, benchmark=False):
 
 def create_pssm(motif_filename, genome_frequencies = [0.25] * 4):
     """
-    The Position-Specific Scoring Matrix (PSSM) reflects the information
+    The Position-Specific Scoring Matrix (PSSM) reflects 115the information
     content represented by the occurrence of each base at each position of a
     sequence of n length in the genome. See:
         http://en.wikipedia.org/wiki/Position-Specific_Scoring_Matrix
@@ -478,7 +475,7 @@ def cuda_score_without_strands(pssm, pssm_r, seq, scores):
         seq: This is a nucleotide sequence represented in integer form where,
             A = 0, C = 1, G = 2, and T = 3.
         scores: This is the output vector for the score of the window starting
-            at ech position.
+            at each position.
     """
     # Get the unique 1D thread index. Numerically equivalent to:
     # cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
