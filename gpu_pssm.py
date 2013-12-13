@@ -21,6 +21,12 @@ examples and more help:
     ...
 """
 
+"""
+TODO:
+    - Create score_sequence with support for scoring the same sequence against
+    many PSSMs (without unloading each chunk from memory).
+"""
+
 import sys
 import math
 import numpy as np
