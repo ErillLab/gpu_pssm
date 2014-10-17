@@ -40,8 +40,9 @@ def test1():
     
     x = [pt[0] for pt in data]
     y = [pt[1] for pt in data]
-    fit_fn = poly1d(polyfit(x, y, 1))
-    plot(x, y, 'x', x, fit_fn(x), '--r')
+    #fit_fn = poly1d(polyfit(x, y, 1))
+    #plot(x, y, 'x', x, fit_fn(x), '--r')
+    plot(x, y, 'x')
     xlabel('Genome Size'), ylabel('Bases per second')
 
 

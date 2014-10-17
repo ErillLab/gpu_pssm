@@ -41,9 +41,9 @@ def test1():
     y = [pt[1] for pt in data]
     print x
     print y
-    #fit_fn = poly1d(polyfit(x, y, 1))
-    #plot(x, y, 'x', x, fit_fn(x), '--r')
-    #xlabel('Genome Size'), ylabel('Bases per second')
+    fit_fn = poly1d(polyfit(x, y, 1))
+    plot(x, y, 'x', x, fit_fn(x), '--r')
+    xlabel('Genome Size'), ylabel('Bases per second')
     
 # bpg vs tpb
 def test2():
@@ -117,4 +117,4 @@ def test3():
     plt.yscale('log')
     xlabel('Genome Size'), ylabel('Bases per second')
     
-test1()
+test3()

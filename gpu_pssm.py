@@ -165,7 +165,7 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
     
     # Collect benchmarking info
     s = default_timer()
-    start_mem = cuda.get_current_device().get_memory_info()[0]    
+    start_mem = cuda.get_current_device().get_context().get_memory_info()[0]    
     
     # Start a stream
     stream = cuda.stream()
@@ -193,7 +193,7 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
     stream.synchronize()
     
     # Collect benchmarking info
-    end_mem = cuda.get_current_device().get_memory_info()[0]
+    end_mem = cuda.get_current_device().get_context().get_memory_info()[0]
     t = default_timer() - s
     
     # Output info on the run if verbose parameter is true
@@ -202,7 +202,7 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
         print "Time: %.2f ms (using time.%s())" % (t * 1000, default_timer.__name__)
         print "Speed: %g bp/sec" % (n / t)
         print "Global memory: %d bytes used (%.2f%% of total)" % \
-            (start_mem - end_mem, float(start_mem - end_mem) * 100 / cuda.get_current_device().get_memory_info()[1])
+            (start_mem - end_mem, float(start_mem - end_mem) * 100 / cuda.get_current_device().get_context().get_memory_info()[1])
     
     # Return the run information for benchmarking
     run_info = {"genome_size": n, "runtime": t, "memory_used": start_mem - end_mem, \
