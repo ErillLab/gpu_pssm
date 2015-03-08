@@ -165,7 +165,7 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
     
     # Collect benchmarking info
     s = default_timer()
-    start_mem = cuda.get_current_device().get_context().get_memory_info()[0]    
+    start_mem = cuda.current_context().get_memory_info()[0]
     
     # Start a stream
     stream = cuda.stream()
@@ -193,7 +193,7 @@ def score_sequence(seq, pssm, verbose = False, keep_strands = True, benchmark = 
     stream.synchronize()
     
     # Collect benchmarking info
-    end_mem = cuda.get_current_device().get_context().get_memory_info()[0]
+    end_mem = cuda.current_context().get_memory_info()[0]
     t = default_timer() - s
     
     # Output info on the run if verbose parameter is true

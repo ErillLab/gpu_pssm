@@ -9,12 +9,13 @@ implementation (gpu_pssm).
 
 """
 import numpy as np
+import pandas as pd
 from numbapro import cuda
 from gpu_pssm import *
 from matplotlib.pyplot import *
 from time import time
 
-# Genome size vs bases/sec
+#%% Genome size vs bases/sec
 def test1():
     """
     This function generates a plot of CUDA performance vs size of the
@@ -87,34 +88,46 @@ def test3():
     This function genertes a plot comparing CPU versus GPU performance.
     """
     start = time()
-    genome_sizes = range(int(100e3), int(1e6 + 1), int(100e3))
-    trials = 5 # trials per size
+    
+    genome_sizes = range(int(100e3), int(200e3 + 1), int(25e3))
+    n_replicates = 3 # trials per size
     w = 16 # window size
     pssm = np.random.rand(4 * w) # generate PSSM
-    data = []
-    for n in genome_sizes * trials:
-        print n
-        # Generate random genome
-        seq = np.random.randint(0, 3, int(n))
+    
+    data = pd.DataFrame(columns=('size', 'gpu', 'cpu'))
+    data['size'] = np.repeat(genome_sizes, n_replicates)
+    
+    for i in range(len(data)):
+        trial_time = time()
+        
+        # Generate random sequence
+        seq = np.random.randint(0, 3, data.size[i])
         
         # Score
         __, __, gpu_run_info = score_sequence(seq, pssm, benchmark = True)
         __, __, cpu_run_info = score_sequence_with_cpu(seq, pssm, benchmark = True)
         
-        # Save data
-        data_point = (n, n / gpu_run_info["runtime"], n / cpu_run_info["runtime"])
-        print data_point
-        data.append(data_point)
-    print "\n\nBenchmarked %g bp in %.2f seconds." % (np.int64(sum(genome_sizes)) * trials, time() - start)
-    
-    # Plot data
-    x = [pt[0] for pt in data]
-    y1 = [pt[1] for pt in data]
-    y2 = [pt[2] for pt in data]
-    fit_fn1 = poly1d(polyfit(x, y1, 1))
-    fit_fn2 = poly1d(polyfit(x, y2, 1))
-    plot(x, y1, 'rx', x, fit_fn1(x), 'r--', x, y2, 'x', x, fit_fn2(x), 'b--')
-    plt.yscale('log')
+        # Save results
+        data.ix[i, 'gpu'] = gpu_run_info['runtime']
+        data.ix[i, 'cpu'] = cpu_run_info['runtime']
+        
+        print "[%d/%d] %.2g bp (%.2fs)" % (i + 1, len(data), data.size[i], time() - trial_time)
+
+
+    print "\nBenchmarked %g bp in %.2f seconds." % (sum(data.size), time() - start)
+        
+    #% Plot data
+    x = data.size
+    y1 = data.size / data.cpu
+    y2 = data.size / data.gpu
+    #fit_fn1 = poly1d(polyfit(x, y1, 1))
+    #fit_fn2 = poly1d(polyfit(x, y2, 1))
+    #plot(x, y1, 'rx', x, fit_fn1(x), 'r--', x, y2, 'x', x, fit_fn2(x), 'b--')
+    figure()
+    plot(x, y1, 'rx', x, y2, 'x')
+    yscale('log')
     xlabel('Genome Size'), ylabel('Bases per second')
     
-test3()
+    return data
+    
+data = test3()
